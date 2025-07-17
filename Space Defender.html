@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Space Defender</title>
+    <style>
+        /* Estilos básicos para o corpo da página */
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Arial', sans-serif;
+            color: #fff;
+        }
+
+        /* Estilos para o contêiner do jogo */
+        #game-container {
+            position: relative;
+            width: 800px; /* Largura do canvas */
+            height: 600px; /* Altura do canvas */
+            border: 2px solid #0f0;
+            background-color: #000;
+            overflow: hidden;
+        }
+
+        /* Estilos para o canvas do jogo */
+        canvas {
+            background-color: #000;
+            display: block;
+        }
+
+        /* Estilos para as telas de sobreposição (início, fim de jogo, etc.) */
+        .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            z-index: 100;
+        }
+
+        /* Estilos para os títulos das telas */
+        .overlay h1 {
+            color: #0f0;
+            font-size: 3em;
+            margin-bottom: 20px;
+        }
+
+        /* Estilos para os parágrafos das telas */
+        .overlay p {
+            font-size: 1.2em;
+            margin-bottom: 30px;
+        }
+
+        /* Estilos para os botões */
+        .overlay button {
+            background-color: #0f0;
+            color: #000;
+            border: none;
+            padding: 15px 30px;
+            font-size: 1.5em;
+            cursor: pointer;
+            border-radius: 5px;
+            transition: background-color 0.3s ease;
+        }
+
+        /* Efeito hover para os botões */
+        .overlay button:hover {
+            background-color: #0c0;
+        }
+
+        /* Estilos para a tela de aprimoramentos */
+        #upgrades-screen {
+            flex-direction: row;
+            gap: 20px;
+        }
+
+        /* Estilos para os cartões de aprimoramento */
+        .upgrade-card {
+            background-color: #222;
+            padding: 20px;
+            border: 2px solid #0f0;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+        }
+
+        /* Efeito hover para os cartões de aprimoramento */
+        .upgrade-card:hover {
+            transform: translateY(-5px);
+        }
+
+        /* Estilos para informações do jogo (vidas, fase) */
+        #game-info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            font-size: 1.2em;
+            color: #0f0;
+            z-index: 50;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+        <div id="game-info">
+            Vidas: <span id="lives-display">3</span> | Fase: <span id="stage-display">1</span>
+        </div>
+
+        <div id="start-screen" class="overlay">
+            <h1>Space Defender</h1>
+            <p>Defenda a galáxia dos invasores!</p>
+            <button id="startButton">Jogar</button>
+        </div>
+
+        <div id="upgrades-screen" class="overlay" style="display: none;">
+            <h1>Escolha um Aprimoramento</h1>
+            <div class="upgrade-card" id="upgrade-damage">
+                <h2>Dano Aumentado</h2>
+                <p>Suas balas causam mais dano.</p>
+            </div>
+            <div class="upgrade-card" id="upgrade-firerate">
+                <h2>Taxa de Tiro Rápida</h2>
+                <p>Sua nave atira mais rápido.</p>
+            </div>
+            <div class="upgrade-card" id="upgrade-speed">
+                <h2>Velocidade da Nave</h2>
+                <p>Sua nave se move mais rápido.</p>
+            </div>
+        </div>
+
+        <div id="game-over-screen" class="overlay" style="display: none;">
+            <h1>Você Perdeu!</h1>
+            <p>Infelizmente, a galáxia caiu...</p>
+            <button id="restartButton">Tentar de Novo</button>
+        </div>
+    </div>
+
+    <script>
+        // Obtenção do canvas e seu contexto 2D para desenho
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Obtenção dos elementos HTML para as telas e informações do jogo
+        const startScreen = document.getElementById('start-screen');
+        const upgradesScreen = document.getElementById('upgrades-screen');
+        const gameOverScreen = document.getElementById('game-over-screen');
+        const startButton = document.getElementById('startButton');
+        const restartButton = document.getElementById('restartButton');
+        const livesDisplay = document.getElementById('lives-display');
+        const stageDisplay = document.getElementById('stage-display');
+
+        // Botões de aprimoramento
+        const upgradeDamageButton = document.getElementById('upgrade-damage');
+        const upgradeFirerateButton = document.getElementById('upgrade-firerate');
+        const upgradeSpeedButton = document.getElementById('upgrade-speed');
+
+        // Variáveis do jogo
+        let player;
+        let bullets = [];
+        let enemies = [];
+        let explosions = [];
+        let gameLoop; // Variável para armazenar o loop principal do jogo
+        let keys = {}; // Objeto para controlar as teclas pressionadas
+
+        // Configurações do jogo
+        const GAME_SETTINGS = {
+            PLAYER_SIZE: 40,
+            PLAYER_SPEED: 5,
+            BULLET_SIZE: 5,
+            BULLET_SPEED: 7,
+            BULLET_DAMAGE: 10,
+            PLAYER_MAX_LIVES: 3,
+            ENEMY_SIZE: 30,
+            ENEMY_SPEED: 2,
+            ENEMY_HEALTH: 30,
+            BOSS_HEALTH_MULTIPLIER: 5, // Chefe tem 5x mais vida
+            BOSS_DAMAGE_MULTIPLIER: 2, // Chefe causa 2x mais dano
+            BOSS_SIZE: 80,
+            FIRERATE_INTERVAL: 200, // Milissegundos entre tiros
+            MAX_ENEMIES_PER_STAGE: 5,
+            STAGE_BOSS_INTERVAL: 10, // A cada 10 fases um chefe
+        };
+
+        let currentStage = 1;
+        let playerLives = GAME_SETTINGS.PLAYER_MAX_LIVES;
+        let playerUpgrade = {
+            damage: 0,
+            firerate: 0,
+            speed: 0
+        };
+
+        // --- Classes do Jogo ---
+
+        // Classe para a Nave do Jogador
+        class Player {
+            constructor() {
+                this.width = GAME_SETTINGS.PLAYER_SIZE;
+                this.height = GAME_SETTINGS.PLAYER_SIZE;
+                this.x = canvas.width / 2 - this.width / 2; // Posição inicial no centro
+                this.y = canvas.height - this.height - 20; // Posição inicial na parte inferior
+                this.speed = GAME_SETTINGS.PLAYER_SPEED;
+                this.lastShotTime = 0; // Para controlar a taxa de tiro
+            }
+
+            // Desenha a nave na tela
+            draw() {
+                ctx.fillStyle = 'cyan'; // Cor da nave
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+            }
+
+            // Atualiza a posição da nave baseada nas teclas pressionadas
+            update() {
+                const currentSpeed = this.speed + playerUpgrade.speed; // Aplica o aprimoramento de velocidade
+                if (keys['w'] && this.y > 0) this.y -= currentSpeed;
+                if (keys['s'] && this.y < canvas.height - this.height) this.y += currentSpeed;
+                if (keys['a'] && this.x > 0) this.x -= currentSpeed;
+                if (keys['d'] && this.x < canvas.width - this.width) this.x += currentSpeed;
+
+                // Tiro automático
+                const now = Date.now();
+                const firerateInterval = GAME_SETTINGS.FIRERATE_INTERVAL - (playerUpgrade.firerate * 50); // Aprimoramento reduz o intervalo
+                if (now - this.lastShotTime > firerateInterval) {
+                    this.shoot();
+                    this.lastShotTime = now;
+                }
+            }
+
+            // Cria uma nova bala
+            shoot() {
+                bullets.push(new Bullet(this.x + this.width / 2 - GAME_SETTINGS.BULLET_SIZE / 2, this.y, GAME_SETTINGS.BULLET_DAMAGE + playerUpgrade.damage));
+            }
+        }
+
+        // Classe para as Balas
+        class Bullet {
+            constructor(x, y, damage) {
+                this.x = x;
+                this.y = y;
+                this.width = GAME_SETTINGS.BULLET_SIZE;
+                this.height = GAME_SETTINGS.BULLET_SIZE * 2;
+                this.speed = GAME_SETTINGS.BULLET_SPEED;
+                this.damage = damage;
+            }
+
+            // Desenha a bala
+            draw() {
+                ctx.fillStyle = 'lime'; // Cor da bala
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+            }
+
+            // Atualiza a posição da bala
+            update() {
+                this.y -= this.speed;
+            }
+        }
+
+        // Classe para os Inimigos
+        class Enemy {
+            constructor(x, y, isBoss = false) {
+                this.width = isBoss ? GAME_SETTINGS.BOSS_SIZE : GAME_SETTINGS.ENEMY_SIZE;
+                this.height = isBoss ? GAME_SETTINGS.BOSS_SIZE : GAME_SETTINGS.ENEMY_SIZE;
+                this.x = x;
+                this.y = y;
+                this.speed = GAME_SETTINGS.ENEMY_SPEED;
+                this.health = isBoss ? GAME_SETTINGS.ENEMY_HEALTH * GAME_SETTINGS.BOSS_HEALTH_MULTIPLIER : GAME_SETTINGS.ENEMY_HEALTH;
+                this.isBoss = isBoss;
+                this.damage = isBoss ? GAME_SETTINGS.BULLET_DAMAGE * GAME_SETTINGS.BOSS_DAMAGE_MULTIPLIER : GAME_SETTINGS.BULLET_DAMAGE; // Inimigos causam dano
+            }
+
+            // Desenha o inimigo (e barra de vida para o chefe)
+            draw() {
+                ctx.fillStyle = this.isBoss ? 'red' : 'purple'; // Cor do inimigo/chefe
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+
+                // Desenha a barra de vida para chefes
+                if (this.isBoss) {
+                    ctx.fillStyle = 'gray';
+                    ctx.fillRect(this.x, this.y - 10, this.width, 5);
+                    ctx.fillStyle = 'green';
+                    const healthBarWidth = (this.health / (GAME_SETTINGS.ENEMY_HEALTH * GAME_SETTINGS.BOSS_HEALTH_MULTIPLIER)) * this.width;
+                    ctx.fillRect(this.x, this.y - 10, healthBarWidth, 5);
+                }
+            }
+
+            // Atualiza a posição do inimigo
+            update() {
+                this.y += this.speed; // Inimigos se movem para baixo
+            }
+        }
+
+        // Classe para as Explosões (efeito visual)
+        class Explosion {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.radius = 5;
+                this.maxRadius = 30;
+                this.opacity = 1;
+                this.color = 'orange';
+            }
+
+            // Desenha a explosão
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 165, 0, ${this.opacity})`; // Laranja com opacidade
+                ctx.fill();
+            }
+
+            // Atualiza a explosão (expande e desaparece)
+            update() {
+                this.radius += 1;
+                this.opacity -= 0.05;
+                if (this.opacity <= 0) {
+                    this.opacity = 0; // Garante que não fique negativo
+                }
+            }
+        }
+
+        // --- Funções do Jogo ---
+
+        // Função para inicializar o jogo
+        function initializeGame() {
+            player = new Player();
+            bullets = [];
+            enemies = [];
+            explosions = [];
+            playerLives = GAME_SETTINGS.PLAYER_MAX_LIVES;
+            currentStage = 1;
+            playerUpgrade = { damage: 0, firerate: 0, speed: 0 }; // Reinicia aprimoramentos
+            updateGameInfo(); // Atualiza a exibição de vidas e fase
+            spawnEnemies(); // Gera os inimigos da primeira fase
+        }
+
+        // Função para iniciar o loop do jogo
+        function startGame() {
+            startScreen.style.display = 'none'; // Esconde a tela de início
+            gameOverScreen.style.display = 'none'; // Garante que a tela de game over esteja escondida
+            upgradesScreen.style.display = 'none'; // Garante que a tela de aprimoramentos esteja escondida
+            initializeGame();
+            if (gameLoop) cancelAnimationFrame(gameLoop); // Limpa qualquer loop anterior
+            gameLoop = requestAnimationFrame(game); // Inicia o loop principal do jogo
+        }
+
+        // Função para exibir a tela de game over
+        function showGameOverScreen() {
+            cancelAnimationFrame(gameLoop); // Para o loop do jogo
+            gameOverScreen.style.display = 'flex'; // Mostra a tela de game over
+        }
+
+        // Função para exibir a tela de aprimoramentos
+        function showUpgradesScreen() {
+            cancelAnimationFrame(gameLoop); // Para o loop do jogo
+            upgradesScreen.style.display = 'flex'; // Mostra a tela de aprimoramentos
+        }
+
+        // Função para aplicar o aprimoramento escolhido
+        function applyUpgrade(type) {
+            if (type === 'damage') {
+                playerUpgrade.damage += 5; // Aumenta o dano por bala
+            } else if (type === 'firerate') {
+                playerUpgrade.firerate += 1; // Aumenta a taxa de tiro
+            } else if (type === 'speed') {
+                playerUpgrade.speed += 1; // Aumenta a velocidade da nave
+            }
+            upgradesScreen.style.display = 'none'; // Esconde a tela de aprimoramentos
+            startGame(); // Continua o jogo
+        }
+
+        // Função para gerar inimigos para a fase atual
+        function spawnEnemies() {
+            enemies = []; // Limpa os inimigos da fase anterior
+            const numEnemies = Math.min(currentStage * 2, GAME_SETTINGS.MAX_ENEMIES_PER_STAGE * 2); // Mais inimigos a cada fase, com limite
+
+            // Verifica se é uma fase de chefe
+            const isBossStage = currentStage % GAME_SETTINGS.STAGE_BOSS_INTERVAL === 0;
+
+            if (isBossStage) {
+                // Adiciona um chefe no centro superior
+                enemies.push(new Enemy(canvas.width / 2 - GAME_SETTINGS.BOSS_SIZE / 2, 50, true));
+            } else {
+                // Adiciona inimigos normais
+                for (let i = 0; i < numEnemies; i++) {
+                    // Posições aleatórias para os inimigos
+                    const x = Math.random() * (canvas.width - GAME_SETTINGS.ENEMY_SIZE);
+                    const y = Math.random() * (canvas.height / 3 - GAME_SETTINGS.ENEMY_SIZE); // Inimigos aparecem na parte superior
+                    enemies.push(new Enemy(x, y));
+                }
+            }
+        }
+
+        // Função para detectar colisão entre dois retângulos
+        function checkCollision(obj1, obj2) {
+            return obj1.x < obj2.x + obj2.width &&
+                   obj1.x + obj1.width > obj2.x &&
+                   obj1.y < obj2.y + obj2.height &&
+                   obj1.y + obj1.height > obj2.y;
+        }
+
+        // Função para atualizar as informações do jogo na tela
+        function updateGameInfo() {
+            livesDisplay.textContent = playerLives;
+            stageDisplay.textContent = currentStage;
+        }
+
+        // --- Loop Principal do Jogo ---
+        function game() {
+            // Limpa o canvas a cada frame
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Atualiza e desenha o jogador
+            player.update();
+            player.draw();
+
+            // Atualiza, desenha e remove balas
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                const bullet = bullets[i];
+                bullet.update();
+                bullet.draw();
+
+                // Remove balas que saem da tela
+                if (bullet.y + bullet.height < 0) {
+                    bullets.splice(i, 1);
+                }
+            }
+
+            // Atualiza, desenha e remove inimigos
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const enemy = enemies[i];
+                enemy.update();
+                enemy.draw();
+
+                // Colisão entre inimigo e jogador
+                if (checkCollision(player, enemy)) {
+                    explosions.push(new Explosion(enemy.x + enemy.width / 2, enemy.y + enemy.height / 2));
+                    playerLives--; // Jogador perde uma vida
+                    updateGameInfo();
+                    enemies.splice(i, 1); // Remove o inimigo
+                    if (playerLives <= 0) {
+                        showGameOverScreen();
+                        return; // Sai do loop do jogo
+                    }
+                }
+
+                // Colisão entre bala e inimigo
+                for (let j = bullets.length - 1; j >= 0; j--) {
+                    const bullet = bullets[j];
+                    if (checkCollision(bullet, enemy)) {
+                        enemy.health -= bullet.damage; // Reduz a vida do inimigo
+                        bullets.splice(j, 1); // Remove a bala
+
+                        if (enemy.health <= 0) {
+                            explosions.push(new Explosion(enemy.x + enemy.width / 2, enemy.y + enemy.height / 2));
+                            enemies.splice(i, 1); // Remove o inimigo morto
+                            break; // Sai do loop de balas, pois o inimigo foi removido
+                        }
+                    }
+                }
+
+                // Inimigos que saem da tela (passam pela nave)
+                if (enemy.y > canvas.height) {
+                    enemies.splice(i, 1); // Remove o inimigo
+                    // Poderíamos adicionar uma penalidade aqui, como perda de vida, se desejado
+                }
+            }
+
+            // Atualiza e desenha explosões
+            for (let i = explosions.length - 1; i >= 0; i--) {
+                const explosion = explosions[i];
+                explosion.update();
+                explosion.draw();
+                if (explosion.opacity <= 0) {
+                    explosions.splice(i, 1); // Remove explosões transparentes
+                }
+            }
+
+            // Verifica se todos os inimigos foram derrotados para avançar de fase
+            if (enemies.length === 0) {
+                currentStage++;
+                updateGameInfo();
+                showUpgradesScreen(); // Mostra a tela de aprimoramentos
+                return; // Sai do loop do jogo temporariamente até o aprimoramento ser escolhido
+            }
+
+            // Continua o loop do jogo
+            gameLoop = requestAnimationFrame(game);
+        }
+
+        // --- Event Listeners ---
+
+        // Escuta o pressionamento de teclas para o movimento da nave
+        document.addEventListener('keydown', (e) => {
+            keys[e.key.toLowerCase()] = true;
+        });
+
+        // Escuta o soltar de teclas
+        document.addEventListener('keyup', (e) => {
+            keys[e.key.toLowerCase()] = false;
+        });
+
+        // Botão de Iniciar Jogo
+        startButton.addEventListener('click', startGame);
+
+        // Botão de Tentar de Novo na tela de Game Over
+        restartButton.addEventListener('click', startGame);
+
+        // Botões de Aprimoramento
+        upgradeDamageButton.addEventListener('click', () => applyUpgrade('damage'));
+        upgradeFirerateButton.addEventListener('click', () => applyUpgrade('firerate'));
+        upgradeSpeedButton.addEventListener('click', () => applyUpgrade('speed'));
+
+        // Exibe a tela de início ao carregar a página
+        window.onload = () => {
+            startScreen.style.display = 'flex';
+        };
+    </script>
+</body>
+</html>
